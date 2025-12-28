@@ -1,22 +1,23 @@
 import time
 import mujoco.viewer
-
+import math
 import mujoco
 import numpy as np
 from legged_gym import LEGGED_GYM_ROOT_DIR
 import torch
 import yaml
-from pytorch_mppi import MPPI
+import sys
+import os
 
-# =========================
-# DEBUG CONFIG
-# =========================
-DEBUG = True
-DEBUG_EVERY = 20   # in mỗi 20 lần control_decimation
+sys.path.append(os.path.dirname(__file__))
+from A_star import AStarPlanner
+from mppi_controller import G1MPPIController
+from astar_utils import setup_astar_avoid_collision, plan_global_path
 
-# =========================
-# 1. UTILS
-# =========================
+SIMULATION_SPEED = 5.0 
+VIEWER_SYNC_SKIP = 5
+
+
 def get_gravity_orientation(quaternion):
     qw, qx, qy, qz = quaternion
     gravity_orientation = np.zeros(3)
@@ -50,95 +51,31 @@ def debug_distances(x, y):
 
     return dist_target, dist_obs.min()
 
-# =========================
-# 2. MPPI DYNAMICS & COST
-# =========================
-def g1_dynamics(state, action):
-    dt = 0.05
-    x, y, yaw = state[:, 0], state[:, 1], state[:, 2]
-    vx, vy, omega = action[:, 0], action[:, 1], action[:, 2]
 
-    new_x = x + (vx * torch.cos(yaw) - vy * torch.sin(yaw)) * dt
-    new_y = y + (vx * torch.sin(yaw) + vy * torch.cos(yaw)) * dt
-    new_yaw = yaw + omega * dt
-
-    return torch.stack([new_x, new_y, new_yaw], dim=1)
-
-
-
-
-def g1_cost(state, action):
-    device = state.device
-
-    # ===== TARGET =====
-    target = torch.tensor([8.0, 0.0], device=device)
-    dx = target[0] - state[:, 0]
-    dy = target[1] - state[:, 1]
-    dist_to_target = torch.sqrt(dx**2 + dy**2)
-
-    target_heading = torch.atan2(dy, dx)
-    heading_error = torch.atan2(
-        torch.sin(target_heading - state[:, 2]),
-        torch.cos(target_heading - state[:, 2])
-    )
-
+def get_lookahead_point(curr_x, curr_y, path, lookahead_dist=1.5):
+    """Get carrot following target point on path"""
+    if not path:
+        return np.array([curr_x, curr_y])
     
-    backward_cost = torch.relu(-action[:, 0]) ** 2
+    target_point = path[-1]
+    found = False
+    
+    for pt in reversed(path):
+        dist = math.hypot(pt[0] - curr_x, pt[1] - curr_y)
+        if dist <= lookahead_dist:
+            target_point = pt
+            found = True
+            break
+    
+    if not found:
+        target_point = path[0]
+    
+    return np.array(target_point)
 
-   
-    lateral_cost = 0.15 * action[:, 1] ** 2
-    yaw_cost     = 2.5  * action[:, 2] ** 2
-
-# ===== OBSTACLES (match Mujoco scene) =====
-    obstacles = torch.tensor([
-    [2.0,  0.9],
-    [2.0, -0.9],
-    [3.5,  0.0],
-    [5.0,  0.8],
-    [5.0, -0.8],
-    [6.5, -0.2],
-    [8.0,  0.6],
-    [8.0, -0.6],
-    [9.5,  0.0],
-    [2.0, 0.0],
-], device=device)
-
-
-    dist_obs = torch.cdist(state[:, :2], obstacles)
-    min_dist = torch.min(dist_obs, dim=1).values
-
-    # ===== ZONES (G1 thật) =====
-    d_collision = 0.24
-    d_safe      = 0.55
-
-    obstacle_cost = torch.zeros_like(min_dist)
-
-    # cấm tuyệt đối
-    obstacle_cost += torch.where(
-        min_dist < d_collision,
-        2e5 * (d_collision - min_dist) ** 2,
-        torch.zeros_like(min_dist)
-    )
-
-    # chỉ né khi rất sát
-    obstacle_cost += torch.where(
-        (min_dist >= d_collision) & (min_dist < d_safe),
-        40.0 * (d_safe - min_dist) ** 2,
-        torch.zeros_like(min_dist)
-    )
-
-    # ===== SPEED REWARD =====
-    speed_reward = -3.0 * action[:, 0]
-
-    return (
-        1.0 * dist_to_target +
-        0.6 * torch.abs(heading_error) +
-        6.0 * backward_cost +
-        lateral_cost +
-        yaw_cost +
-        obstacle_cost +
-        speed_reward
-    )
+# =========================
+# 2. MPPI CONTROLLER
+# =========================
+# (Encapsulated in G1MPPIController class - see mppi_controller.py)
 
 
 
@@ -185,25 +122,18 @@ if __name__ == "__main__":
     d = mujoco.MjData(m)
     m.opt.timestep = simulation_dt
 
+    # ---------- A* PLANNER ----------
+    astar_planner = setup_astar_avoid_collision()
+    print("✅ A* Pathfinder (avoid collision) Initialized.")
+    GLOBAL_PATH = []
+
     # ---------- POLICY ----------
     policy = torch.jit.load(policy_path)
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    # ---------- MPPI ----------
-    mppi = MPPI(
-    g1_dynamics,
-    g1_cost,
-    nx=3,
-    horizon=20,                 # G1 quyết rất nhanh
-    num_samples=1500,
-    lambda_=0.6,                # rất aggressive
-    noise_sigma=torch.diag(
-        torch.tensor([0.30, 0.25, 0.15], device=device)
-    ),
-    u_min=torch.tensor([0.0, -0.45, -0.6], device=device),
-    u_max=torch.tensor([1.2,  0.45,  0.6], device=device),
-    device=device,
-)
+    # ---------- MPPI CONTROLLER ----------
+    mppi_controller = G1MPPIController(device=device, local_target=torch.tensor([8.0, 0.0], device=device), scenario="avoid")
+    print("✅ MPPI Controller (avoid scenario) Initialized.")
 
 
     action = np.zeros(num_actions, dtype=np.float32)
@@ -248,6 +178,18 @@ if __name__ == "__main__":
                     1 - 2 * (q[2] ** 2 + q[3] ** 2),
                 )
 
+                # ===== A* PATHFINDING =====
+                # Plan path once at start or if needed
+                if not GLOBAL_PATH:
+                    goal_x, goal_y = 8.0, 0.0  # Target from g1_cost
+                    path = plan_global_path(astar_planner, curr_x, curr_y, goal_x, goal_y)
+
+                
+                if GLOBAL_PATH:
+                    lookahead_pt = get_lookahead_point(curr_x, curr_y, GLOBAL_PATH, lookahead_dist=1.5)
+                else:
+                    lookahead_pt = np.array([8.0, 0.0])  # Default target
+
                 state_tensor = torch.tensor(
                     [[curr_x, curr_y, yaw]],
                     device=device,
@@ -255,7 +197,7 @@ if __name__ == "__main__":
                 )
 
                 # ===== MPPI =====
-                mppi_cmd = mppi.command(state_tensor)
+                mppi_cmd = mppi_controller.command(state_tensor)
                 mppi_cmd = mppi_cmd.squeeze().cpu().numpy()
 
                 cmd[:] = mppi_cmd
@@ -285,20 +227,9 @@ if __name__ == "__main__":
                 action = policy(obs_tensor).detach().cpu().numpy().squeeze()
                 target_dof_pos = action * action_scale + default_angles
 
-                # ===== DEBUG PRINT =====
-                if DEBUG and counter % (control_decimation * DEBUG_EVERY) == 0:
-                    dist_t, dist_o = debug_distances(curr_x, curr_y)
-                    print("\n================ DEBUG =================")
-                    print(f"pos=({curr_x:.2f},{curr_y:.2f}) yaw={yaw:.2f}")
-                    print(f"cmd(vx,vy,w)=({cmd[0]:.2f},{cmd[1]:.2f},{cmd[2]:.2f})")
-                    print(f"dist_target={dist_t:.2f}  min_obs={dist_o:.2f}")
-                    print(f"tau mean={np.mean(tau):.3f} max={np.max(np.abs(tau)):.3f}")
-                    print(f"obs cmd scaled={obs[6:9]}")
-                    print(f"qj mean={np.mean(qj):.3f} dqj mean={np.mean(dqj):.3f}")
-                    print("=======================================\n")
+            if counter % VIEWER_SYNC_SKIP == 0:
+                viewer.sync()
 
-            viewer.sync()
-
-            time_until_next_step = m.opt.timestep - (time.time() - step_start)
+            time_until_next_step = m.opt.timestep / SIMULATION_SPEED - (time.time() - step_start)
             if time_until_next_step > 0:
                 time.sleep(time_until_next_step)
