@@ -1,77 +1,76 @@
 import torch
 import numpy as np
 from pytorch_mppi import MPPI
+from constants import (
+    MPPI_HORIZON, MPPI_NUM_SAMPLES, MPPI_LAMBDA, MPPI_DT,
+    MPPI_U_MIN, MPPI_U_MAX, MPPI_NOISE_SIGMA,
+    OBSTACLE_COLLISION_DIST, OBSTACLE_SAFE_DIST,
+    OBSTACLE_HARD_PENALTY, OBSTACLE_SOFT_PENALTY,
+    COST_WEIGHT_DISTANCE, COST_WEIGHT_HEADING, COST_WEIGHT_SPEED_REWARD,
+    COST_WEIGHT_BACKWARD, COST_WEIGHT_ROTATION, COST_WEIGHT_PATH_TRACKING
+)
 
 
 class G1MPPIController:
-    """MPPI Controller for G1 robot with custom dynamics and cost function"""
+    """MPPI Controller for G1 robot with unified cost function for all scenarios"""
     
-    def __init__(self, device="cuda", local_target=None, scenario="room"):
+    def __init__(self, device="cuda", local_target=None, obstacles=None, global_path=None, dt=MPPI_DT):
         """
-        Initialize MPPI controller
-        
         Args:
-            device: torch device (cuda or cpu)
+            device: torch device 
             local_target: tensor [x, y] for current target (shared reference)
-            scenario: "room" or "avoid" for different cost functions
+            obstacles: obstacle positions from environtment (sensor data)
+            global_path: A* global path as numpy array (N, 2) for path tracking cost
+            dt: control timestep in seconds (default: from constants)
         """
         self.device = device
         self.local_target = local_target
-        self.scenario = scenario
+        self.dt = dt
         
-        # Initialize MPPI with appropriate cost function
-        if scenario == "avoid":
-            # More aggressive parameters for obstacle avoidance
-            mppi = MPPI(
-                self.dynamics,
-                self.cost_avoid,
-                nx=3,
-                horizon=20,
-                num_samples=1500,
-                lambda_=0.6,
-                noise_sigma=torch.diag(torch.tensor([0.30, 0.25, 0.15], device=device)),
-                u_min=torch.tensor([0.0, -0.45, -0.6], device=device),
-                u_max=torch.tensor([1.2, 0.45, 0.6], device=device),
-                device=device,
-            )
-        else:  # "room" scenario
-            mppi = MPPI(
-                self.dynamics,
-                self.cost,
-                nx=3,
-                horizon=25,
-                num_samples=1500,
-                lambda_=0.7,
-                noise_sigma=torch.diag(torch.tensor([0.5, 0.5, 0.2], device=device)),
-                u_min=torch.tensor([0.0, -0.5, -0.8], device=device),
-                u_max=torch.tensor([1.2, 0.5, 0.8], device=device),
-                device=device,
-            )
+        # Store obstacles from environment
+        if obstacles is not None:
+            self.obstacles = torch.tensor(obstacles, dtype=torch.float32, device=device)
+        else:
+            self.obstacles = None
         
-        self.mppi = mppi
+        # Store A* global path for path tracking
+        if global_path is not None:
+            self.global_path = torch.tensor(global_path, dtype=torch.float32, device=device)
+        else:
+            self.global_path = None
+        
+        # Initialize MPPI with cost function 
+        self.mppi = MPPI(
+            self.dynamics, #movement model
+            self.cost,  #cost function
+            nx=3, #state dimension [x, y, yaw] for G1 robot
+            horizon=MPPI_HORIZON,
+            num_samples=MPPI_NUM_SAMPLES,
+            lambda_=MPPI_LAMBDA,
+            noise_sigma=torch.diag(torch.tensor(MPPI_NOISE_SIGMA, device=device)),
+            u_min=torch.tensor(MPPI_U_MIN, device=device),
+            u_max=torch.tensor(MPPI_U_MAX, device=device),
+            device=device,
+        )
     
-    @staticmethod
-    def dynamics(state, action):
+    def dynamics(self, state, action):
         """
         G1 robot kinematic model
         state: [x, y, yaw]
         action: [vx, vy, omega]
         """
-        dt = 0.05
-        x, y, yaw = state[:, 0], state[:, 1], state[:, 2]
-        vx, vy, omega = action[:, 0], action[:, 1], action[:, 2]
+        x, y, yaw = state[:, 0], state[:, 1], state[:, 2] #current state
+        vx, vy, omega = action[:, 0], action[:, 1], action[:, 2] #velocities in body frame
         
-        new_x = x + (vx * torch.cos(yaw) - vy * torch.sin(yaw)) * dt
-        new_y = y + (vx * torch.sin(yaw) + vy * torch.cos(yaw)) * dt
-        new_yaw = yaw + omega * dt
+        # From body frame to world frame
+        new_x = x + (vx * torch.cos(yaw) - vy * torch.sin(yaw)) * self.dt
+        new_y = y + (vx * torch.sin(yaw) + vy * torch.cos(yaw)) * self.dt
+        new_yaw = yaw + omega * self.dt
         
         return torch.stack([new_x, new_y, new_yaw], dim=1)
     
     def cost(self, state, action):
         """
-        Cost function for MPPI optimization (room scenario)
-        
-        Considers:
         - Distance to target
         - Heading error
         - Obstacle avoidance
@@ -83,129 +82,62 @@ class G1MPPIController:
         dist_to_target = torch.sqrt(dx**2 + dy**2)
         
         target_heading = torch.atan2(dy, dx)
-        heading_error = torch.atan2(
-            torch.sin(target_heading - state[:, 2]),
-            torch.cos(target_heading - state[:, 2])
-        )
+        heading_error = torch.atan2( torch.sin(target_heading - state[:, 2]), torch.cos(target_heading - state[:, 2]))
         
-        # 2. Obstacles
-        obs_list = []
-        obs_list.append(self._generate_rect(4.0, 0.0, 0.6, 0.6))  # Column
-        obs_list.append(self._generate_rect(2.0, 3.0, 0.6, 1.0))  # Table
-        obs_list.append(torch.tensor([[2.0, 4.0], [6.0, 4.0], [2.0, -4.0], [6.0, -4.0]], device=self.device))  # Walls
+        # 2. Obstacles avoidance 
+        if self.obstacles is not None:
+            dist_obs = torch.cdist(state[:, :2], self.obstacles) #compute distances to obstacles
+            min_dist = torch.min(dist_obs, dim=1).values # minimum distance to closest obstacle
+        else:
+            # Fallback: no obstacle avoidance if obstacles not provided
+            min_dist = torch.ones(state.shape[0], device=self.device) * 10.0
         
-        obstacles = torch.cat(obs_list, dim=0).to(self.device)
-        dist_obs = torch.cdist(state[:, :2], obstacles)
-        min_dist = torch.min(dist_obs, dim=1).values
-        
-        d_collision = 0.4
-        d_safe = 0.8
         obstacle_cost = torch.zeros_like(min_dist)
-        obstacle_cost += torch.where(min_dist < d_collision, 1e6 * (d_collision - min_dist)**2, torch.zeros_like(min_dist))
-        obstacle_cost += torch.where((min_dist >= d_collision) & (min_dist < d_safe), 200.0 * (d_safe - min_dist)**2, torch.zeros_like(min_dist))
         
-        # 3. Control Costs
-        speed_reward = -3.0 * action[:, 0]
-        backward_cost = torch.relu(-action[:, 0]) ** 2
-        
-        return (
-            1.5 * dist_to_target +
-            0.8 * torch.abs(heading_error) +
-            obstacle_cost +
-            speed_reward +
-            5.0 * backward_cost
-        )
-    
-    def cost_avoid(self, state, action):
-        """
-        Cost function for MPPI optimization (avoid collision scenario)
-        
-        Optimized for obstacle-rich environments
-        """
-        device = state.device
-
-        # ===== TARGET =====
-        target = torch.tensor([8.0, 0.0], device=device)
-        dx = target[0] - state[:, 0]
-        dy = target[1] - state[:, 1]
-        dist_to_target = torch.sqrt(dx**2 + dy**2)
-
-        target_heading = torch.atan2(dy, dx)
-        heading_error = torch.atan2(
-            torch.sin(target_heading - state[:, 2]),
-            torch.cos(target_heading - state[:, 2])
-        )
-
-        backward_cost = torch.relu(-action[:, 0]) ** 2
-        lateral_cost = 0.15 * action[:, 1] ** 2
-        yaw_cost = 2.5 * action[:, 2] ** 2
-
-        # ===== OBSTACLES (match scene.xml cylinders) =====
-        obstacles = torch.tensor([
-            [2.0, 0.9],
-            [2.0, -0.9],
-            [3.5, 0.0],
-            [5.0, 0.8],
-            [5.0, -0.8],
-            [6.5, -0.2],
-            [8.0, 0.6],
-            [8.0, -0.6],
-            [9.5, 0.0],
-            [2.0, 0.0],
-        ], device=device)
-
-        dist_obs = torch.cdist(state[:, :2], obstacles)
-        min_dist = torch.min(dist_obs, dim=1).values
-
-        # ===== COLLISION ZONES =====
-        d_collision = 0.24
-        d_safe = 0.55
-
-        obstacle_cost = torch.zeros_like(min_dist)
-
         # Hard collision penalty
         obstacle_cost += torch.where(
-            min_dist < d_collision,
-            2e5 * (d_collision - min_dist) ** 2,
+            min_dist < OBSTACLE_COLLISION_DIST,
+            OBSTACLE_HARD_PENALTY * (OBSTACLE_COLLISION_DIST - min_dist) ** 2,
             torch.zeros_like(min_dist)
         )
-
-        # Soft avoidance cost
+        
+        # Soft avoidance penalty
         obstacle_cost += torch.where(
-            (min_dist >= d_collision) & (min_dist < d_safe),
-            40.0 * (d_safe - min_dist) ** 2,
+            (min_dist >= OBSTACLE_COLLISION_DIST) & (min_dist < OBSTACLE_SAFE_DIST),
+            OBSTACLE_SOFT_PENALTY * (OBSTACLE_SAFE_DIST - min_dist) ** 2,  
             torch.zeros_like(min_dist)
         )
-
-        # ===== SPEED REWARD =====
-        speed_reward = -3.0 * action[:, 0]
-
+        
+        # 3. Control Costs 
+        speed_reward = COST_WEIGHT_SPEED_REWARD * action[:, 0]
+        backward_cost = COST_WEIGHT_BACKWARD * torch.relu(-action[:, 0]) ** 2
+        
+        omega_cost = COST_WEIGHT_ROTATION * action[:, 2] ** 2
+        
+        # 4. Path tracking cost - penalize deviation from A* global path
+        path_cost = torch.zeros_like(dist_to_target)
+        if self.global_path is not None and self.global_path.shape[0] > 0:
+            # Find minimum distance to any point on the global path
+            dist_to_path = torch.cdist(state[:, :2], self.global_path)  # (batch, num_path_points)
+            min_dist_to_path = torch.min(dist_to_path, dim=1).values     # (batch,)
+            path_cost = COST_WEIGHT_PATH_TRACKING * min_dist_to_path ** 2
+        
+        # Total cost - balanced weights for all objectives
         return (
-            1.0 * dist_to_target +
-            0.6 * torch.abs(heading_error) +
-            6.0 * backward_cost +
-            lateral_cost +
-            yaw_cost +
+            COST_WEIGHT_DISTANCE * dist_to_target +
+            COST_WEIGHT_HEADING * torch.abs(heading_error) +
             obstacle_cost +
-            speed_reward
+            path_cost +
+            speed_reward +
+            backward_cost + 
+            omega_cost 
         )
-    
-    @staticmethod
-    def _generate_rect(center_x, center_y, w, h, density=5, device="cuda"):
-        """Generate rectangular obstacle points"""
-        x_range = torch.linspace(center_x - w/2, center_x + w/2, density, device=device)
-        y_range = torch.linspace(center_y - h/2, center_y + h/2, density, device=device)
-        grid_x, grid_y = torch.meshgrid(x_range, y_range, indexing='xy')
-        return torch.stack([grid_x.flatten(), grid_y.flatten()], dim=1)
     
     def command(self, state_tensor):
-        """
-        Generate control command using MPPI
-        
-        Args:
-            state_tensor: current state [x, y, yaw]
-            
-        Returns:
-            control command [vx, vy, omega]
+        """    
+        current state [x, y, yaw]
+        Return:
+        control command [vx, vy, omega]
         """
         return self.mppi.command(state_tensor)
+

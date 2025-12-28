@@ -42,14 +42,14 @@
 
     <geom name="wall_right" type="box" pos="3.5 -4.0 0.3" size="4.5 0.05 0.3" material="wall_low_mat"/>
 
-    <!-- Bàn thứ nhất (bàn gốc) -->
+   
     <geom name="table_top" type="box" pos="2.0 3.0 0.4" size="0.5 1.0 0.02" rgba="0.6 0.4 0.2 1"/>
     <geom name="table_leg1" type="cylinder" pos="1.6 2.1 0.2" size="0.02 0.2" rgba="0.1 0.1 0.1 1"/>
     <geom name="table_leg2" type="cylinder" pos="2.4 2.1 0.2" size="0.02 0.2" rgba="0.1 0.1 0.1 1"/>
     <geom name="table_leg3" type="cylinder" pos="1.6 3.9 0.2" size="0.02 0.2" rgba="0.1 0.1 0.1 1"/>
     <geom name="table_leg4" type="cylinder" pos="2.4 3.9 0.2" size="0.02 0.2" rgba="0.1 0.1 0.1 1"/>
 
-    <!-- Bàn thứ hai (mới thêm) -->
+    
     <geom name="table2_top" type="box" pos="2.0 -3.0 0.4" size="0.5 1.0 0.02" rgba="0.6 0.4 0.2 1"/>
     <geom name="table2_leg1" type="cylinder" pos="1.6 -3.9 0.2" size="0.02 0.2" rgba="0.1 0.1 0.1 1"/>
     <geom name="table2_leg2" type="cylinder" pos="2.4 -3.9 0.2" size="0.02 0.2" rgba="0.1 0.1 0.1 1"/>

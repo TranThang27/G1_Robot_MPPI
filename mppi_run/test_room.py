@@ -1,232 +1,235 @@
+"""
+Test script for room_scene scenario
+Multi-target navigation visiting safe points near walls
+"""
 import time
 import mujoco.viewer
 import mujoco
 import numpy as np
-from legged_gym import LEGGED_GYM_ROOT_DIR
 import torch
-import yaml
 import random
 import sys
 import os
-import math
 
 sys.path.append(os.path.dirname(__file__))
-from A_star import AStarPlanner
+
+# Import utilities and constants
+from utils import (
+    get_gravity_orientation, pd_control, get_next_path_point, 
+    extract_robot_state
+)
+from constants import (
+    GOAL_REACHED_THRESHOLD, VIEWER_SYNC_SKIP, SIMULATION_SPEED,
+    ROOM_SAFE_POINTS, WAYPOINT_THRESHOLD
+)
+from sim_utils import SimulationConfig, MuJoCoSimulator
 from mppi_controller import G1MPPIController
-from astar_utils import setup_astar_room, plan_global_path
+from map_config import get_map_config, plan_global_path
 
 
-DEBUG = True
-DEBUG_EVERY = 50
-
-
-SIMULATION_SPEED = 5.0 
-VIEWER_SYNC_SKIP = 5
-
-
-SAFE_POINTS = [
-    [4.5 , 0.0],   
-    [6.0, 3.0],   
-    [6.0, -3.0],  
-]
-
-# =========================
-# GLOBAL VARIABLES
-# =========================
-device = "cuda" if torch.cuda.is_available() else "cpu"
-
-# --- KHỞI TẠO QUAN TRỌNG: TRÁNH SỐ 0 ---
-# Chọn ngẫu nhiên một điểm an toàn ngay từ đầu
-_start_pt = random.choice(SAFE_POINTS)
-CURRENT_TARGET = torch.tensor(_start_pt, device=device) # Đích cuối
-LOCAL_TARGET   = torch.tensor(_start_pt, device=device) # Đích tạm thời (MPPI Follow)
-GLOBAL_PATH = []  
-
-def get_new_target():
+def run_room_test(config_file="g1_room.yaml"):
+    """
+    Main test function for room_scene scenario
+    Navigate between safe points
     
-    # Lọc ra các điểm khác với đích hiện tại để robot không đứng yên mãi
-    curr_list = CURRENT_TARGET.cpu().numpy().tolist()
-    candidates = [p for p in SAFE_POINTS if np.linalg.norm(np.array(p) - np.array(curr_list)) > 1.0]
+    Args:
+        config_file: Simulation config filename
+    """
+    # Load simulation config
+    sim_config = SimulationConfig(config_file)
     
-    if not candidates: candidates = SAFE_POINTS # Fallback
-    new_pt = random.choice(candidates)
+    # Initialize MuJoCo simulator
+    simulator = MuJoCoSimulator(sim_config.xml_path, dt=sim_config.simulation_dt)
     
-    print(f"\n>>> NEW MISSION: Go to ({new_pt[0]:.2f}, {new_pt[1]:.2f}) <<<")
-    return torch.tensor(new_pt, device=device)
-
-def get_lookahead_point(curr_x, curr_y, path, lookahead_dist=1.2):
-    """Tìm điểm dẫn đường (Carrot) trên Path"""
-    if not path: return np.array([curr_x, curr_y]) # Nếu không có path, trả về chính nó (đứng yên)
+    # Load map and create path planner
+    map_cfg = get_map_config("room_scene")
+    obstacles_array = map_cfg.get_obstacles_array()
+    print(f"✅ Loaded '{map_cfg.name}' map with {len(map_cfg.ox)} obstacle points")
     
-    target_point = path[-1]
-    found = False
+    astar_planner = map_cfg.create_planner()
+    print("✅ A* Pathfinder Initialized")
     
-    # Logic Pure Pursuit đơn giản
-    for pt in reversed(path):
-        dist = math.hypot(pt[0] - curr_x, pt[1] - curr_y)
-        if dist <= lookahead_dist:
-            target_point = pt
-            found = True
-            break
-            
-   
-    if not found: target_point = path[0]
-        
-    return np.array(target_point)
-
-
-def get_gravity_orientation(quaternion):
-    qw, qx, qy, qz = quaternion
-    gravity_orientation = np.zeros(3)
-    gravity_orientation[0] = 2 * (-qz * qx + qw * qy)
-    gravity_orientation[1] = -2 * (qz * qy + qw * qx)
-    gravity_orientation[2] = 1 - 2 * (qw * qw + qz * qz)
-    return gravity_orientation
-
-def pd_control(target_q, q, kp, target_dq, dq, kd):
-    return (target_q - q) * kp + (target_dq - dq) * kd
-
-# =========================
-# MAIN LOOP
-# =========================
-if __name__ == "__main__":
-    import argparse
-    parser = argparse.ArgumentParser()
-    parser.add_argument("config_file", type=str)
-    args = parser.parse_args()
-
-    # --- Load Config ---
-    with open(f"{LEGGED_GYM_ROOT_DIR}/deploy/deploy_mujoco/configs/{args.config_file}", "r") as f:
-        config = yaml.load(f, Loader=yaml.FullLoader)
+    # Initialize MPPI controller
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    mppi_controller = G1MPPIController(
+        device=device, 
+        local_target=torch.zeros(2, device=device),
+        obstacles=obstacles_array,
+        global_path=np.array([])  # Will be updated after A* planning
+    )
+    print("✅ MPPI Controller Initialized")
     
-    policy_path = config["policy_path"].replace("{LEGGED_GYM_ROOT_DIR}", LEGGED_GYM_ROOT_DIR)
-    xml_path = config["xml_path"].replace("{LEGGED_GYM_ROOT_DIR}", LEGGED_GYM_ROOT_DIR)
-
-    simulation_duration = config["simulation_duration"]
-    simulation_dt = config["simulation_dt"]
-    control_decimation = config["control_decimation"]
-    kps = np.array(config["kps"], dtype=np.float32)
-    kds = np.array(config["kds"], dtype=np.float32)
-    default_angles = np.array(config["default_angles"], dtype=np.float32)
-    ang_vel_scale = config["ang_vel_scale"]
-    dof_pos_scale = config["dof_pos_scale"]
-    dof_vel_scale = config["dof_vel_scale"]
-    action_scale = config["action_scale"]
-    cmd_scale = np.array(config["cmd_scale"], dtype=np.float32)
-    num_actions = config["num_actions"]
-    num_obs = config["num_obs"]
+    # Load neural network policy
+    policy = torch.jit.load(sim_config.policy_path)
     
-    cmd = np.zeros(3, dtype=np.float32) 
-
-    # --- Init MuJoCo ---
-    m = mujoco.MjModel.from_xml_path(xml_path)
-    d = mujoco.MjData(m)
-    m.opt.timestep = simulation_dt
-
-    astar_planner = setup_astar_room()
-    print("✅ A* Map (room scenario) Initialized.")
-
-    # Initialize MPPI controller with shared LOCAL_TARGET reference
-    mppi_controller = G1MPPIController(device=device, local_target=LOCAL_TARGET)
-    print("✅ MPPI Controller Initialized.")
-
-    policy = torch.jit.load(policy_path)
-
-    action = np.zeros(num_actions, dtype=np.float32)
-    target_dof_pos = default_angles.copy()
-    obs = np.zeros(num_obs, dtype=np.float32)
+    # Initialize state variables
+    action = np.zeros(sim_config.num_actions, dtype=np.float32)
+    target_dof_pos = sim_config.default_angles.copy()
+    obs = np.zeros(sim_config.num_obs, dtype=np.float32)
+    cmd = sim_config.cmd_init.copy()
+    
+    global_path = []
+    path_idx = 0
     counter = 0
-
+    path_initialized = False
+    path_planned = False  # Flag: A* chỉ tìm 1 lần cho mỗi target
+    current_target_idx = 0
+    prev_pos = np.array([0.0, 0.0])
     
-
-    with mujoco.viewer.launch_passive(m, d) as viewer:
+    # Select first target
+    current_target = torch.tensor(ROOM_SAFE_POINTS[current_target_idx], device=device, dtype=torch.float32)
+    
+    # Launch viewer
+    with mujoco.viewer.launch_passive(simulator.model, simulator.data) as viewer:
+        # Setup camera
         cam = viewer.cam
-        cam.azimuth = 0; cam.elevation = -50; cam.distance = 9.0
+        cam.azimuth = 0
+        cam.elevation = -50
+        cam.distance = 9.0
         cam.lookat[:] = [4.0, 0.0, 0.0]
         
         start_time = time.time()
         
-        while viewer.is_running() and time.time() - start_time < simulation_duration:
+        # Main simulation loop
+        while viewer.is_running() and time.time() - start_time < sim_config.simulation_duration:
             step_start = time.time()
-
-            # 1. Control
-            tau = pd_control(target_dof_pos, d.qpos[7:], kps, np.zeros_like(kds), d.qvel[6:], kds)
-            d.ctrl[:] = tau
-            mujoco.mj_step(m, d)
+            
+            # PD control for joint tracking
+            tau = pd_control(
+                target_dof_pos,
+                simulator.data.qpos[7:],
+                sim_config.kps,
+                np.zeros_like(sim_config.kds),
+                simulator.data.qvel[6:],
+                sim_config.kds,
+            )
+            simulator.set_dof_torque(tau)
+            simulator.step(tau)
             counter += 1
-
-            # 2. Planning Logic
-            if counter % control_decimation == 0:
-                curr_x, curr_y = d.qpos[0], d.qpos[1]
-                q = d.qpos[3:7]
-                yaw = np.arctan2(2*(q[0]*q[3] + q[1]*q[2]), 1-2*(q[2]**2 + q[3]**2))
-
-                # --- NẾU CHƯA CÓ ĐƯỜNG, TÍNH TOÁN ---
-                if not GLOBAL_PATH:
-                    if counter % 50 == 0: print("⏳ Waiting for A*...")
-                    
-                    # Cập nhật LOCAL_TARGET bằng vị trí hiện tại để cost function không hút về 0
-                    LOCAL_TARGET[0] = curr_x
-                    LOCAL_TARGET[1] = curr_y
-
-                    # Tính A* từ vị trí hiện tại đến CURRENT_TARGET
-                    path = plan_global_path(astar_planner, curr_x, curr_y, CURRENT_TARGET[0].item(), CURRENT_TARGET[1].item())
-                    
+            
+            # High-level planning and control
+            if counter % sim_config.control_decimation == 0:
+                # Extract robot state
+                curr_x, curr_y, yaw = extract_robot_state(
+                    simulator.data.qpos, 
+                    simulator.data.qvel
+                )
+                
+                # Initialize on first iteration
+                if not path_initialized:
+                    path_initialized = True
+                    print(f"🤖 Robot spawned at ({curr_x:.2f}, {curr_y:.2f})")
+                    print(f"🎯 First target: ({current_target[0]:.2f}, {current_target[1]:.2f})")
+                
+                # Track position for debugging
+                curr_pos = np.array([curr_x, curr_y])
+                
+                # Plan path ONLY once for current target
+                if not path_planned:
+                    goal_x, goal_y = current_target[0].item(), current_target[1].item()
+                    path = plan_global_path(astar_planner, curr_x, curr_y, goal_x, goal_y)
                     if path:
-                        GLOBAL_PATH = path
-                        print(f"✅ Path Found! Len: {len(path)}")
-
-                # --- ĐIỀU KHIỂN ---
-                if not GLOBAL_PATH:
-                    # Chưa có đường -> ĐỨNG IM
-                    cmd[:] = 0.0 
-                else:
-                    # Có đường -> ĐI THEO
-                    tgt_cpu = CURRENT_TARGET.cpu().numpy()
-                    dist_to_final = np.linalg.norm([curr_x - tgt_cpu[0], curr_y - tgt_cpu[1]])
-                    
-                    if dist_to_final < 0.5:
-                        print(f"✅ ARRIVED AT SAFE POINT ({tgt_cpu[0]:.1f}, {tgt_cpu[1]:.1f})")
-                        CURRENT_TARGET = get_new_target() # Lấy điểm Safe Point mới
-                        GLOBAL_PATH = [] # Xóa đường cũ để vòng sau tính lại
-                        cmd[:] = 0.0 # Dừng lại nghỉ tí
+                        global_path = path
+                        path_idx = 0
+                        path_planned = True
+                        # Update MPPI controller with A* global path
+                        global_path_array = np.array(global_path)
+                        mppi_controller.global_path = torch.tensor(
+                            global_path_array, dtype=torch.float32, device=device
+                        )
+                        print(f"✅ Global Path (A*) Found! {len(path)} waypoints")
+                        print(f"   Will follow this global path to reach target")
+                        print(f"   MPPI will handle local obstacle avoidance and stay on path")
                     else:
-                        # Tìm Carrot Point trên đường A*
-                        lookahead_pt = get_lookahead_point(curr_x, curr_y, GLOBAL_PATH, lookahead_dist=1.2)
+                        print(f"❌ A* pathfinding failed!")
+                        path_planned = True
+                
+                # Execute control
+                if not global_path:
+                    cmd[:] = 0.0
+                else:
+                    goal_x, goal_y = current_target[0].item(), current_target[1].item()
+                    dist_to_goal = np.hypot(goal_x - curr_x, goal_y - curr_y)
+                    
+                    if dist_to_goal < GOAL_REACHED_THRESHOLD:
+                        cmd[:] = 0.0
+                        print(f"✅ REACHED TARGET at ({curr_x:.2f}, {curr_y:.2f})")
                         
-                        # Cập nhật Target cho MPPI Cost
-                        LOCAL_TARGET[0] = lookahead_pt[0]
-                        LOCAL_TARGET[1] = lookahead_pt[1]
-
-                        # Chạy MPPI
-                        state_tensor = torch.tensor([[curr_x, curr_y, yaw]], device=device, dtype=torch.float32)
+                        # Move to next target
+                        current_target_idx = (current_target_idx + 1) % len(ROOM_SAFE_POINTS)
+                        current_target = torch.tensor(ROOM_SAFE_POINTS[current_target_idx], device=device, dtype=torch.float32)
+                        global_path = []
+                        path_idx = 0
+                        path_planned = False
+                        print(f"🎯 New target: ({current_target[0]:.2f}, {current_target[1]:.2f})")
+                    else:
+                        # Follow A* global path, MPPI handles local deviations
+                        if path_idx < len(global_path):
+                            wp_x, wp_y = global_path[path_idx]
+                            dist_to_wp = np.hypot(wp_x - curr_x, wp_y - curr_y)
+                            
+                            # Advance to next waypoint if close enough
+                            if dist_to_wp < WAYPOINT_THRESHOLD and path_idx < len(global_path) - 1:
+                                path_idx += 1
+                                wp_x, wp_y = global_path[path_idx]
+                        else:
+                            wp_x, wp_y = global_path[-1]
+                        
+                        # MPPI control toward current waypoint (local obstacle avoidance)
+                        state_tensor = torch.tensor(
+                            [[curr_x, curr_y, yaw]],
+                            device=device,
+                            dtype=torch.float32,
+                        )
+                        mppi_controller.local_target = torch.tensor(
+                            [wp_x, wp_y], device=device, dtype=torch.float32
+                        )
                         mppi_cmd = mppi_controller.command(state_tensor)
-                        cmd[:] = mppi_cmd.squeeze().cpu().numpy()
-
-                        if DEBUG and counter % (control_decimation * DEBUG_EVERY) == 0:
-                            print(f"Go -> ({lookahead_pt[0]:.1f}, {lookahead_pt[1]:.1f})")
-
-                # --- Observation ---
-                qj = (d.qpos[7:] - default_angles) * dof_pos_scale
-                dqj = d.qvel[6:] * dof_vel_scale
-                gravity_orientation = get_gravity_orientation(q)
-                omega = d.qvel[3:6] * ang_vel_scale
+                        mppi_cmd = mppi_cmd.squeeze().cpu().numpy()
+                        
+                        # Clip to control limits
+                        mppi_cmd = np.clip(mppi_cmd, [0.0, -0.35, -0.5], [1.0, 0.35, 0.5])
+                        cmd[:] = mppi_cmd
+                        
+                        # Debug output - show A* path progress
+                        if counter % int(2.0 / sim_config.simulation_dt) == 0:
+                            print(f"[{counter*sim_config.simulation_dt:.1f}s] Pos: ({curr_x:.2f}, {curr_y:.2f}), "
+                                  f"A*WP[{path_idx}]: ({wp_x:.2f}, {wp_y:.2f}), "
+                                  f"Progress: {path_idx+1}/{len(global_path)}, Dist2Goal: {dist_to_goal:.2f}m")
+                
+                # Build observation
+                qj = (simulator.data.qpos[7:] - sim_config.default_angles) * sim_config.dof_pos_scale
+                dqj = simulator.data.qvel[6:] * sim_config.dof_vel_scale
+                gravity_orientation = get_gravity_orientation(simulator.data.qpos[3:7])
+                omega = simulator.data.qvel[3:6] * sim_config.ang_vel_scale
                 
                 obs[:3] = omega
                 obs[3:6] = gravity_orientation
-                obs[6:9] = cmd * cmd_scale
-                obs[9:9+num_actions] = qj
-                obs[9+num_actions:9+2*num_actions] = dqj
-                obs[9+2*num_actions:9+3*num_actions] = action
+                obs[6:9] = cmd * sim_config.cmd_scale
+                obs[9:9+sim_config.num_actions] = qj
+                obs[9+sim_config.num_actions:9+2*sim_config.num_actions] = dqj
+                obs[9+2*sim_config.num_actions:9+3*sim_config.num_actions] = action
                 
+                # Get policy action
                 obs_tensor = torch.from_numpy(obs).unsqueeze(0)
                 action = policy(obs_tensor).detach().cpu().numpy().squeeze()
-                target_dof_pos = action * action_scale + default_angles
-
+                target_dof_pos = action * sim_config.action_scale + sim_config.default_angles
+            
+            # Update viewer
             if counter % VIEWER_SYNC_SKIP == 0:
                 viewer.sync()
             
-            target_dt = m.opt.timestep / SIMULATION_SPEED
+            # Frame rate control
+            target_dt = simulator.model.opt.timestep / SIMULATION_SPEED
             process_time = time.time() - step_start
             if target_dt > process_time:
                 time.sleep(target_dt - process_time)
+
+
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("config_file", type=str, default="g1_room.yaml")
+    args = parser.parse_args()
+    
+    run_room_test(args.config_file)
