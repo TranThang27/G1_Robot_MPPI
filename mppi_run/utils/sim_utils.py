@@ -9,7 +9,7 @@ import mujoco
 
 
 class SimulationConfig:
-    """Load and store simulation configuration from YAML"""
+    """Load and manage simulation configuration"""
     
     def __init__(self, config_file):
         """
@@ -149,14 +149,14 @@ class ControlLoop:
             path: List of (x, y) waypoints or None
         """
         try:
-            from map_config import plan_global_path
+            from .map_config import plan_global_path
             path = plan_global_path(self.planner, start_x, start_y, goal_x, goal_y)
             if path:
                 self.global_path = path
                 self.path_idx = 0
             return path
         except Exception as e:
-            print(f"⚠️ Planning Error: {e}")
+            print(f"Planning Error: {e}")
             return None
     
     def get_policy_action(self, obs):
@@ -172,3 +172,93 @@ class ControlLoop:
         obs_tensor = torch.from_numpy(obs).unsqueeze(0)
         action = self.policy(obs_tensor).detach().cpu().numpy().squeeze()
         return action
+
+
+# ============ SIMULATION SETUP FUNCTIONS ============
+
+def setup_simulation(config_file, map_name):
+    """
+    Complete simulation setup for a scenario.
+    
+    Args:
+        config_file: Simulation config filename (e.g., "scene_1.yaml")
+        map_name: Map configuration name (e.g., "avoid_collision" or "room_scene")
+    
+    Returns:
+        dict: Contains simulator, sim_config, policy, astar_planner, obstacles_array
+    """
+    from core import G1MPPIController
+    from .map_config import get_map_config
+    
+    # Load simulation config
+    sim_config = SimulationConfig(config_file)
+    
+    # Initialize MuJoCo simulator
+    simulator = MuJoCoSimulator(sim_config.xml_path, dt=sim_config.simulation_dt)
+    
+    # Load map and create path planner
+    map_cfg = get_map_config(map_name)
+    obstacles_array = map_cfg.get_obstacles_array()
+    print(f"✅ Loaded '{map_cfg.name}' map with {len(map_cfg.ox)} obstacle points")
+    
+    astar_planner = map_cfg.create_planner()
+    print("✅ A* Pathfinder Initialized")
+    
+    # Initialize MPPI controller
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    mppi_controller = G1MPPIController(
+        device=device, 
+        local_target=torch.zeros(2, device=device),
+        obstacles=obstacles_array,
+        global_path=np.array([])
+    )
+    print("✅ MPPI Controller Initialized")
+    
+    # Load neural network policy
+    policy = torch.jit.load(sim_config.policy_path)
+    print("✅ Neural Network Policy Loaded")
+    
+    return {
+        'simulator': simulator,
+        'sim_config': sim_config,
+        'policy': policy,
+        'astar_planner': astar_planner,
+        'mppi_controller': mppi_controller,
+        'obstacles_array': obstacles_array,
+        'device': device,
+        'map_config': map_cfg
+    }
+
+
+# ============ CAMERA SETUP ============
+
+def setup_camera(viewer, camera_config):
+    """
+    Setup camera position and view for the viewer.
+    
+    Args:
+        viewer: MuJoCo viewer instance
+        camera_config: Dict with camera settings {azimuth, elevation, distance, lookat}
+    """
+    cam = viewer.cam
+    cam.azimuth = camera_config['azimuth']
+    cam.elevation = camera_config['elevation']
+    cam.distance = camera_config['distance']
+    cam.lookat[:] = camera_config['lookat']
+
+
+# Predefined camera configurations for different scenarios
+CAMERA_CONFIGS = {
+    'avoid_collision': {
+        'azimuth': 0,
+        'elevation': -75,
+        'distance': 12.0,
+        'lookat': [4.0, 0.0, 0.5]
+    },
+    'room_scene': {
+        'azimuth': 0,
+        'elevation': -50,
+        'distance': 9.0,
+        'lookat': [4.0, 0.0, 0.0]
+    }
+}

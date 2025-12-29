@@ -5,26 +5,32 @@
 
 ```
 mppi_run/
-├── A_star.py              # A* Path Planning Algorithm
-├── constants.py           # Cấu hình chung (parameters, weights)
-├── map_config.py          # Cấu hình scene (obstacles, bounds)
-├── mppi_controller.py     # MPPI Controller logic
-├── path_smoother.py       # B-spline path smoothing
-├── sim_utils.py           # Simulation utilities
-├── utils.py               # Helper functions
-├── test_avoid_collision.py # Test 1: Tránh cylinder obstacles
-├── test_room.py           # Test 2: Multi-target trong phòng
-├── scene_1.py             # Scene 1 definition
-├── scene_2.py             # Scene 2 definition
-└── __init__.py            # Python package init
+├── core/
+│   ├── mppi_controller.py     # MPPI Controller logic
+│   ├── astar.py               # A* Path Planning Algorithm
+│   └── path_smoother.py       # B-spline path smoothing
+├── utils/
+│   ├── constants.py           # Cấu hình chung (parameters, weights)
+│   ├── sim_utils.py           # Simulation utilities
+│   ├── map_config.py          # Cấu hình scene (obstacles, bounds)
+│   └── utils.py               # Helper functions
+├── pipeline/
+│   └── main_algor.py          # Unified control pipeline
+├── scenarios/
+│   ├── scene_1.py  # Test 1: Tránh cylinder obstacles
+│   └── scene_2.py     # Test 2: Multi-target trong phòng
+└── config/
+    └── __init__.py            # Configuration package init
 ```
 
 ## Cài Đặt
 
-### Hướng dẫn cài đặt chi tiết
+### Setup guide
 
-Để cài đặt toàn bộ môi trường Unitree RL Gym, vui lòng tham khảo:
-- **[Setup Guide (English)](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/doc/setup_en.md)**
+Install Unitree RL Gym, Issac Gym:
+- **[Setup Guide](https://github.com/unitreerobotics/unitree_rl_gym/blob/main/doc/setup_en.md)**
+
+- **[Install IssacGym](https://medium.com/@piliwilliam0306/install-isaac-gym-on-ubuntu-22-04-8ebf4b86e6f7) **
 
 ### 1. Cài đặt mppi_controller
 
@@ -38,17 +44,17 @@ pip install pytorch_mppi
 pip install mujoco==3.2.3
 ```
 
-### Test 1: Avoid Cylinder Obstacles
+### Test 1: Avoid Cylinder Obstacles (Vao file mppi_run/scenarios )
 
 ```bash
-python scene_1.py scene_1.yaml
+python scene_1 scene_1.yaml
 ```
 
 
-### Test 2: Multi-Target Navigation
+### Test 2: Multi-Target Navigation (Vao file mppi_run/scenarios )
 
 ```bash
-python scene_2.py scene_2.yaml
+python scene_2 scene_2.yaml
 ```
 
 ---

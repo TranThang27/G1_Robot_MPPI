@@ -1,20 +1,13 @@
 import torch
 import numpy as np
 from pytorch_mppi import MPPI
-from constants import (
-    MPPI_HORIZON, MPPI_NUM_SAMPLES, MPPI_LAMBDA, MPPI_DT,
-    MPPI_U_MIN, MPPI_U_MAX, MPPI_NOISE_SIGMA,
-    OBSTACLE_COLLISION_DIST, OBSTACLE_SAFE_DIST,
-    OBSTACLE_HARD_PENALTY, OBSTACLE_SOFT_PENALTY,
-    COST_WEIGHT_DISTANCE, COST_WEIGHT_HEADING, COST_WEIGHT_SPEED_REWARD,
-    COST_WEIGHT_BACKWARD, COST_WEIGHT_ROTATION, COST_WEIGHT_PATH_TRACKING
-)
+from utils import constants as C
 
 
 class G1MPPIController:
     """MPPI Controller for G1 robot with unified cost function for all scenarios"""
     
-    def __init__(self, device="cuda", local_target=None, obstacles=None, global_path=None, dt=MPPI_DT):
+    def __init__(self, device="cuda", local_target=None, obstacles=None, global_path=None, dt=C.MPPI_DT):
         """
         Args:
             device: torch device 
@@ -44,12 +37,12 @@ class G1MPPIController:
             self.dynamics, #movement model
             self.cost,  #cost function
             nx=3, #state dimension [x, y, yaw] for G1 robot
-            horizon=MPPI_HORIZON,
-            num_samples=MPPI_NUM_SAMPLES,
-            lambda_=MPPI_LAMBDA,
-            noise_sigma=torch.diag(torch.tensor(MPPI_NOISE_SIGMA, device=device)),
-            u_min=torch.tensor(MPPI_U_MIN, device=device),
-            u_max=torch.tensor(MPPI_U_MAX, device=device),
+            horizon=C.MPPI_HORIZON,
+            num_samples=C.MPPI_NUM_SAMPLES,
+            lambda_=C.MPPI_LAMBDA,
+            noise_sigma=torch.diag(torch.tensor(C.MPPI_NOISE_SIGMA, device=device)),
+            u_min=torch.tensor(C.MPPI_U_MIN, device=device),
+            u_max=torch.tensor(C.MPPI_U_MAX, device=device),
             device=device,
         )
     
@@ -96,23 +89,23 @@ class G1MPPIController:
         
         # Hard collision penalty
         obstacle_cost += torch.where(
-            min_dist < OBSTACLE_COLLISION_DIST,
-            OBSTACLE_HARD_PENALTY * (OBSTACLE_COLLISION_DIST - min_dist) ** 2,
+            min_dist < C.OBSTACLE_COLLISION_DIST,
+            C.OBSTACLE_HARD_PENALTY * (C.OBSTACLE_COLLISION_DIST - min_dist) ** 2,
             torch.zeros_like(min_dist)
         )
         
         # Soft avoidance penalty
         obstacle_cost += torch.where(
-            (min_dist >= OBSTACLE_COLLISION_DIST) & (min_dist < OBSTACLE_SAFE_DIST),
-            OBSTACLE_SOFT_PENALTY * (OBSTACLE_SAFE_DIST - min_dist) ** 2,  
+            (min_dist >= C.OBSTACLE_COLLISION_DIST) & (min_dist < C.OBSTACLE_SAFE_DIST),
+            C.OBSTACLE_SOFT_PENALTY * (C.OBSTACLE_SAFE_DIST - min_dist) ** 2,  
             torch.zeros_like(min_dist)
         )
         
         # 3. Control Costs 
-        speed_reward = COST_WEIGHT_SPEED_REWARD * action[:, 0]
-        backward_cost = COST_WEIGHT_BACKWARD * torch.relu(-action[:, 0]) ** 2
+        speed_reward = C.COST_WEIGHT_SPEED_REWARD * action[:, 0]
+        backward_cost = C.COST_WEIGHT_BACKWARD * torch.relu(-action[:, 0]) ** 2
         
-        omega_cost = COST_WEIGHT_ROTATION * action[:, 2] ** 2
+        omega_cost = C.COST_WEIGHT_ROTATION * action[:, 2] ** 2
         
         # 4. Path tracking cost - penalize deviation from A* global path
         path_cost = torch.zeros_like(dist_to_target)
@@ -120,12 +113,12 @@ class G1MPPIController:
             # Find minimum distance to any point on the global path
             dist_to_path = torch.cdist(state[:, :2], self.global_path)  # (batch, num_path_points)
             min_dist_to_path = torch.min(dist_to_path, dim=1).values     # (batch,)
-            path_cost = COST_WEIGHT_PATH_TRACKING * min_dist_to_path ** 2
+            path_cost = C.COST_WEIGHT_PATH_TRACKING * min_dist_to_path ** 2
         
         # Total cost - balanced weights for all objectives
         return (
-            COST_WEIGHT_DISTANCE * dist_to_target +
-            COST_WEIGHT_HEADING * torch.abs(heading_error) +
+            C.COST_WEIGHT_DISTANCE * dist_to_target +
+            C.COST_WEIGHT_HEADING * torch.abs(heading_error) +
             obstacle_cost +
             path_cost +
             speed_reward +
@@ -140,4 +133,3 @@ class G1MPPIController:
         control command [vx, vy, omega]
         """
         return self.mppi.command(state_tensor)
-

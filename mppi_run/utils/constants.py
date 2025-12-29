@@ -6,25 +6,28 @@ Global constants for robot control and simulation
 # CONTROL PARAMETERS
 # ============================================
 GOAL_REACHED_THRESHOLD = 0.4  # meters - robot reaches goal when within this distance
-WAYPOINT_THRESHOLD = 0.3      # meters - move to next waypoint when within this distance
-SIMULATION_SPEED = 3.0        # Speed multiplier for visualization (3x faster)
+WAYPOINT_THRESHOLD = 0.5      # meters - INCREASED from 0.3 to easily advance to next waypoint
+SIMULATION_SPEED = 10.0       # Speed multiplier for visualization (10x faster)
+
+# Velocity smoothing (exponential filter for smooth motion)
+VELOCITY_SMOOTH_ALPHA = 0.3   # Smoothing factor (0-1): higher = more smooth, lower = more responsive
 
 # ============================================
 # VIEWER PARAMETERS
 # ============================================
-VIEWER_SYNC_SKIP = 5          # Update viewer every N physics steps
+VIEWER_SYNC_SKIP = 12         # Update viewer every N physics steps
 
 # ============================================
 # MPPI CONTROLLER PARAMETERS
 # ============================================
-MPPI_HORIZON = 20             # Number of steps to look ahead (reduced for immediate path following)
-MPPI_NUM_SAMPLES = 1500       # Number of trajectory samples (reduced for speed)
-MPPI_LAMBDA = 0.3             # Temperature parameter (lower = more deterministic, follow path)
+MPPI_HORIZON = 12             # Number of steps to look ahead
+MPPI_NUM_SAMPLES = 800        # Number of trajectory samples
+MPPI_LAMBDA = 0.15            # REDUCED from 0.3 - follow path more strictly
 MPPI_DT = 0.04                # Control timestep (40ms = 50Hz)
 
-# Control limits
-MPPI_U_MIN = [0.0, -0.35, -0.5]    # [vx_min, vy_min, omega_min] (slightly increased)
-MPPI_U_MAX = [1.2, 0.35, 0.5]      # [vx_max, vy_max, omega_max] (slightly increased)
+# Control limits - 2 m/s max speed, faster rotation
+MPPI_U_MIN = [0.0, -0.65, -1.2]    # [vx_min, vy_min, omega_min] - faster rotation
+MPPI_U_MAX = [2.0, 0.65, 1.2]      # [vx_max, vy_max, omega_max] - faster rotation
 
 # Noise sigma for MPPI exploration
 MPPI_NOISE_SIGMA = [0.30, 0.25, 0.15]  # [vx, vy, omega]
@@ -40,12 +43,14 @@ OBSTACLE_SOFT_PENALTY = 50.0        # Soft avoidance penalty weight (reduced fro
 # ============================================
 # COST FUNCTION WEIGHTS
 # ============================================
+# COST FUNCTION WEIGHTS
+# ============================================
 COST_WEIGHT_DISTANCE = 1.0          # Distance to target weight
-COST_WEIGHT_HEADING = 3.0           # Heading error weight (INCREASED - prioritize facing goal)
+COST_WEIGHT_HEADING = 3.0           # Heading error weight
 COST_WEIGHT_SPEED_REWARD = -2.0     # Speed forward reward
 COST_WEIGHT_BACKWARD = 1.0          # Backward motion penalty
 COST_WEIGHT_ROTATION = 0.2          # Angular velocity penalty
-COST_WEIGHT_PATH_TRACKING = 10.0    # Weight for staying on A* global path
+COST_WEIGHT_PATH_TRACKING = 18.0    
 
 # ============================================
 # PATH PLANNING PARAMETERS
@@ -64,10 +69,10 @@ AVOID_COLLISION_GOAL = (8.5, 0.0)  # Goal position for avoid collision test (pas
 # ROOM_SCENE SCENARIO
 # ============================================
 ROOM_SAFE_POINTS = [
-    [-0.5, 2.0],    # Near left wall
-    [7.5, 2.0],     # Near right wall
+    [7.5, 2.0],
+    [-0.5, 2.0],    # Near left walll
     [4.5, -3.5],    # Near bottom wall
-    [4.5, 3.5],     # Near top wall
+    [-0.5, 2.0],     # Near top wall
 ]
 
 DEBUG_MODE = True

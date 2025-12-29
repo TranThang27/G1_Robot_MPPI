@@ -1,6 +1,6 @@
 import math
 import numpy as np
-from path_smoother import smooth_path_spline
+from .path_smoother import smooth_path_spline
 from scipy.spatial import KDTree
 
 class AStarPlanner:

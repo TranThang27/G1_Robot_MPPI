@@ -4,7 +4,7 @@ Combines scene_maps.py and astar_utils.py into one clean interface
 """
 
 import numpy as np
-from A_star import AStarPlanner
+from core import AStarPlanner
 
 
 class MapConfig:
@@ -103,28 +103,31 @@ AVOID_COLLISION_MAP = MapConfig(
 ROOM_MAP = MapConfig(
     name="room_scene",
     cylinder_centers=[
-        # Center table legs
+        # Center table (3.5 to 4.5 x in range, -0.7 to 0.7 y range) - legs + surface
         [3.5, -0.7],    # center_table_leg1
         [4.5, -0.7],    # center_table_leg2
         [3.5, 0.7],     # center_table_leg3
         [4.5, 0.7],     # center_table_leg4
+        [4.0, 0.0],     # center table surface
         
-        # Table 1 legs (top area)
+        # Table 1 legs (1.6-2.4 x, 2.1-3.9 y) - legs + surface
         [1.6, 2.1],     # table_leg1
         [2.4, 2.1],     # table_leg2
         [1.6, 3.9],     # table_leg3
         [2.4, 3.9],     # table_leg4
+        [2.0, 3.0],     # table 1 surface center
         
-        # Table 2 legs (bottom area)
+        # Table 2 legs (1.6-2.4 x, -3.9 to -2.1 y) - legs + surface
         [1.6, -3.9],    # table2_leg1
         [2.4, -3.9],    # table2_leg2
         [1.6, -2.1],    # table2_leg3
         [2.4, -2.1],    # table2_leg4
+        [2.0, -3.0],    # table 2 surface center
     ],
-    grid_bounds=(-2.0, 9.0, -5.0, 5.0),
-    cylinder_radius=0.05,
+    grid_bounds=(-2.0, 10.0, -5.0, 6.0),  # INCREASED from (-2.0, 9.0, -5.0, 5.0) - wider room
+    cylinder_radius=0.2,  # INCREASED further to cover table surfaces + robot size
     astar_resolution=0.1,
-    astar_rr=0.6  # Wider clearance for furniture
+    astar_rr=0.7  # Even wider clearance for furniture
 )
 
 
@@ -151,5 +154,5 @@ def plan_global_path(astar, start_x, start_y, goal_x, goal_y):
         path = list(zip(rx, ry))
         return path
     except Exception as e:
-        print(f"⚠️ Planning Error: {e}")
+        print(f"Planning Error: {e}")
         return None
