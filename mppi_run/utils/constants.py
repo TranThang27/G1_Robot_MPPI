@@ -70,10 +70,10 @@ AVOID_COLLISION_GOAL = (8.5, 0.0)  # Goal position for avoid collision test (pas
 # ============================================
 ROOM_SAFE_POINTS = [
     [7.5, 2.0],
-    [-0.5, 2.0],    # Near left walll
-    [4.5, -3.5],    # Near bottom wall
-    [-0.5, 2.0],     # Near top wall
+    [-0.5, 2.0],    
+    [4.5, -3.5],   
+    [-0.5, 2.0],     
 ]
 
 DEBUG_MODE = True
-DEBUG_PRINT_INTERVAL = 50  # Print debug info every N control steps
+DEBUG_PRINT_INTERVAL = 50  

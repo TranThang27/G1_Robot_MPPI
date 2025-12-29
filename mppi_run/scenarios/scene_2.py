@@ -9,13 +9,14 @@ import sys
 import os
 import argparse
 
-# Add parent directory to path to import from root
+
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
 if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
 
-from utils import setup_simulation, CAMERA_CONFIGS, constants
+from utils import setup_simulation, constants
+from config.camera_config import CAMERA_CONFIGS
 from pipeline.main_algor import run_simulation_pipeline
 
 
@@ -27,7 +28,7 @@ def run_room_test(config_file="scene_2.yaml"):
     Args:
         config_file: Simulation config filename
     """
-    # ============ SIMULATION SETUP ============
+    # SIMULATION SETUP
     setup_data = setup_simulation(config_file, "room_scene")
     
     simulator = setup_data['simulator']
@@ -38,7 +39,7 @@ def run_room_test(config_file="scene_2.yaml"):
     obstacles_array = setup_data['obstacles_array']
     device = setup_data['device']
     
-    # ============ SCENARIO-SPECIFIC CONFIGURATION ============
+    # SCENARIO-SPECIFIC CONFIGURATION 
     
     # Multi-target scenario state
     current_target_idx = 0
@@ -49,7 +50,7 @@ def run_room_test(config_file="scene_2.yaml"):
         nonlocal current_target_idx, visited_targets
         
         if len(visited_targets) >= len(constants.ROOM_SAFE_POINTS):
-            print(f"🎯 SCENARIO COMPLETE: Visited all safe points!")
+            print(f"SCENARIO COMPLETE")
             return None
         
         # Get current target
@@ -59,7 +60,7 @@ def run_room_test(config_file="scene_2.yaml"):
         # Check if reached current target
         if dist_to_target < 0.3:  # Target reached threshold
             visited_targets.add(current_target_idx)
-            print(f"✅ REACHED TARGET {current_target_idx}: ({target_x:.2f}, {target_y:.2f})")
+            print(f"REACHED TARGET {current_target_idx}: ({target_x:.2f}, {target_y:.2f})")
             
             # Move to next unvisited target
             current_target_idx = (current_target_idx + 1) % len(constants.ROOM_SAFE_POINTS)
@@ -73,7 +74,7 @@ def run_room_test(config_file="scene_2.yaml"):
         
         return (target_x, target_y)
     
-    # ============ RUN UNIFIED PIPELINE ============
+  
     run_simulation_pipeline(
         simulator=simulator,
         sim_config=sim_config,

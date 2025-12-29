@@ -17,8 +17,9 @@ mppi_run/
 ├── pipeline/
 │   └── main_algor.py          # Unified control pipeline
 ├── scenarios/
-│   ├── scene_1.py  # Test 1: Tránh cylinder obstacles
-│   └── scene_2.py     # Test 2: Multi-target trong phòng
+│   ├── scene_1.py             # Test 1: Tránh cylinder obstacles
+│   ├── scene_2.py             # Test 2: Multi-target trong phòng
+│   └── scene_3.py             # Test 3: Dynamic moving obstacles
 └── config/
     └── __init__.py            # Configuration package init
 ```

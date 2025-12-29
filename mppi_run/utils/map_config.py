@@ -131,10 +131,35 @@ ROOM_MAP = MapConfig(
 )
 
 
+# ============================================
+# SCENE 3: moving_obstacles - Dynamic obstacles
+# ============================================
+MOVING_OBSTACLES_MAP = MapConfig(
+    name="moving_obstacles",
+    cylinder_centers=[
+        [2.0, 0.9],     # obs_1
+        [2.0, -0.9],    # obs_2
+        [2.0, 0.0],     # obs_10
+        [3.5, 0.0],     # obs_3
+        [5.0, 0.8],     # obs_4
+        [5.0, -0.8],    # obs_5
+        [6.5, -0.2],    # obs_6
+        [8.0, 0.6],     # obs_7
+        [8.0, -0.6],    # obs_8
+        [9.5, 0.0],     # obs_9
+    ],
+    grid_bounds=(-1.0, 10.0, -2.0, 2.0),
+    cylinder_radius=0.15,  # Slightly larger for moving obstacles (oscillation range)
+    astar_resolution=0.1,
+    astar_rr=0.15  # Wider clearance for dynamic obstacles
+)
+
+
 # Map registry
 _MAP_REGISTRY = {
     "avoid_collision": AVOID_COLLISION_MAP,
     "room_scene": ROOM_MAP,
+    "moving_obstacles": MOVING_OBSTACLES_MAP,
 }
 
 

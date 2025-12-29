@@ -1,6 +1,6 @@
 """
 Core algorithms module
-Contains MPPI control, A* pathfinding, and path smoothing
+Contains MPPI control, A* pathfinding, and spline interpolation
 """
 
 from .mppi_controller import G1MPPIController

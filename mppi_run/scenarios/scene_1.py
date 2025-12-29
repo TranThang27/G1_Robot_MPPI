@@ -9,13 +9,14 @@ import sys
 import os
 import argparse
 
-# Add parent directory to path to import from root
+
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
 if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
 
-from utils import setup_simulation, CAMERA_CONFIGS, constants
+from utils import setup_simulation, constants
+from config.camera_config import CAMERA_CONFIGS
 from pipeline.main_algor import run_simulation_pipeline
 
 
@@ -27,7 +28,7 @@ def run_avoid_collision_test(config_file="scene_1.yaml"):
     Args:
         config_file: Simulation config filename
     """
-    # ============ SIMULATION SETUP ============
+    # SIMULATION SETUP 
     setup_data = setup_simulation(config_file, "avoid_collision")
     
     simulator = setup_data['simulator']
@@ -43,7 +44,7 @@ def run_avoid_collision_test(config_file="scene_1.yaml"):
         constants.AVOID_COLLISION_GOAL, device=device, dtype=torch.float32
     )
     
-    # ============ SCENARIO-SPECIFIC CONFIGURATION ============
+   
     
     # Define target getter for single goal scenario
     goal_reached = False
@@ -64,7 +65,7 @@ def run_avoid_collision_test(config_file="scene_1.yaml"):
         
         return (goal_x, goal_y)
     
-    # ============ RUN UNIFIED PIPELINE ============
+   
     run_simulation_pipeline(
         simulator=simulator,
         sim_config=sim_config,

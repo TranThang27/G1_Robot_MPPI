@@ -6,6 +6,7 @@ import numpy as np
 import torch
 from legged_gym import LEGGED_GYM_ROOT_DIR
 import mujoco
+from config.camera_config import CAMERA_CONFIGS
 
 
 class SimulationConfig:
@@ -199,10 +200,10 @@ def setup_simulation(config_file, map_name):
     # Load map and create path planner
     map_cfg = get_map_config(map_name)
     obstacles_array = map_cfg.get_obstacles_array()
-    print(f"✅ Loaded '{map_cfg.name}' map with {len(map_cfg.ox)} obstacle points")
+    print(f"Loaded '{map_cfg.name}' map")
     
     astar_planner = map_cfg.create_planner()
-    print("✅ A* Pathfinder Initialized")
+    print("A* Initialized")
     
     # Initialize MPPI controller
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -212,11 +213,11 @@ def setup_simulation(config_file, map_name):
         obstacles=obstacles_array,
         global_path=np.array([])
     )
-    print("✅ MPPI Controller Initialized")
+    print("MPPI Controller Initialized")
     
     # Load neural network policy
     policy = torch.jit.load(sim_config.policy_path)
-    print("✅ Neural Network Policy Loaded")
+    print("Neural Network Policy Loaded")
     
     return {
         'simulator': simulator,
@@ -233,32 +234,9 @@ def setup_simulation(config_file, map_name):
 # ============ CAMERA SETUP ============
 
 def setup_camera(viewer, camera_config):
-    """
-    Setup camera position and view for the viewer.
-    
-    Args:
-        viewer: MuJoCo viewer instance
-        camera_config: Dict with camera settings {azimuth, elevation, distance, lookat}
-    """
     cam = viewer.cam
     cam.azimuth = camera_config['azimuth']
     cam.elevation = camera_config['elevation']
     cam.distance = camera_config['distance']
     cam.lookat[:] = camera_config['lookat']
 
-
-# Predefined camera configurations for different scenarios
-CAMERA_CONFIGS = {
-    'avoid_collision': {
-        'azimuth': 0,
-        'elevation': -75,
-        'distance': 12.0,
-        'lookat': [4.0, 0.0, 0.5]
-    },
-    'room_scene': {
-        'azimuth': 0,
-        'elevation': -50,
-        'distance': 9.0,
-        'lookat': [4.0, 0.0, 0.0]
-    }
-}
