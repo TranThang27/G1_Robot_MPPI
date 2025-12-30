@@ -8,7 +8,7 @@ class AStarPlanner:
     A* path planning class ( global planning)
     """
 
-    def __init__(self, ox, oy, resolution, rr =0.35):
+    def __init__(self, ox, oy, resolution, rr =0.37):
         """
         ox, oy: collision coordinates
         resolution: Grid resolution

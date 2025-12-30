@@ -6,6 +6,11 @@ Combines scene_maps.py and astar_utils.py into one clean interface
 import numpy as np
 from core import AStarPlanner
 
+# ============================================
+# SHARED A* PARAMETERS
+# ============================================
+ASTAR_RR = 0.35  # Unified robot radius for all scenarios
+
 
 class MapConfig:
     """Base class for map configurations"""
@@ -93,7 +98,7 @@ AVOID_COLLISION_MAP = MapConfig(
     grid_bounds=(-1.0, 10.0, -2.0, 2.0),
     cylinder_radius=0.12,
     astar_resolution=0.1,
-    astar_rr=0.10  # Tight fit for narrow passages
+    astar_rr=ASTAR_RR
 )
 
 
@@ -127,7 +132,7 @@ ROOM_MAP = MapConfig(
     grid_bounds=(-2.0, 10.0, -5.0, 6.0),  # INCREASED from (-2.0, 9.0, -5.0, 5.0) - wider room
     cylinder_radius=0.2,  # INCREASED further to cover table surfaces + robot size
     astar_resolution=0.1,
-    astar_rr=0.7  # Even wider clearance for furniture
+    astar_rr=ASTAR_RR
 )
 
 
@@ -151,7 +156,7 @@ MOVING_OBSTACLES_MAP = MapConfig(
     grid_bounds=(-1.0, 10.0, -2.0, 2.0),
     cylinder_radius=0.15,  # Slightly larger for moving obstacles (oscillation range)
     astar_resolution=0.1,
-    astar_rr=0.15  # Wider clearance for dynamic obstacles
+    astar_rr=ASTAR_RR
 )
 
 
