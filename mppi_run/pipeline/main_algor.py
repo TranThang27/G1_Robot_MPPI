@@ -22,7 +22,8 @@ from utils import (
     utils,
     constants,
     setup_camera,
-    map_config
+    map_config,
+    BEVVisualizer
 )
 
 # Extract specific functions
@@ -41,7 +42,8 @@ def run_simulation_pipeline(
     obstacles_array,
     target_getter_fn,
     viewer_config,
-    device="cuda"
+    device="cuda",
+    show_bev=True
 ):
     """
     Main simulation pipeline executed by both scene1 and scene2.
@@ -69,6 +71,18 @@ def run_simulation_pipeline(
     path_idx = 0
     counter = 0
     path_planned = False
+    
+    # Dynamic obstacle management (chair 11 and chair 9)
+    chair_11_enabled = False
+    chair_11_pos = [10.6, 0.02]
+    
+    chair_9_enabled = False
+    chair_9_pos = [4.6, 0.02]
+    resume_time = 0.0
+
+    
+    # Initialize BEV visualizer
+    bev_viz = BEVVisualizer(map_config.AVOID_COLLISION_MAP) if show_bev else None
     
     # Launch viewer
     with mujoco.viewer.launch_passive(simulator.model, simulator.data) as viewer:
@@ -102,12 +116,87 @@ def run_simulation_pipeline(
                     simulator.data.qvel
                 )
                 
+                elapsed_time = time.time() - start_time
+                
+                # Check if 3 seconds elapsed and enable chair 9
+                if elapsed_time >= 3.0 and not chair_9_enabled:
+                    print(f"\n{'='*60}")
+                    print(f"[{elapsed_time:.2f}s] CHAIR 9 SUDDENLY APPEARED AT ({chair_9_pos[0]}, {chair_9_pos[1]})")
+                    print(f"ROBOT POSITION: ({curr_x:.2f}, {curr_y:.2f})")
+                    print(f"Enabling chair 9 in obstacle map, recalculating path, and PAUSING FOR 1.5s...")
+                    print(f"{'='*60}\n")
+                    
+                    # Add chair 9 to obstacle map
+                    map_config.AVOID_COLLISION_MAP.cylinder_centers.append(chair_9_pos)
+                    map_config.AVOID_COLLISION_MAP.ox, map_config.AVOID_COLLISION_MAP.oy = map_config.AVOID_COLLISION_MAP._build_grid()
+                    
+                    # Update AStar Planner instance
+                    astar_planner = map_config.AVOID_COLLISION_MAP.create_planner()
+                    
+                    # Update MPPI local obstacles array
+                    obstacles_array = map_config.AVOID_COLLISION_MAP.get_obstacles_array()
+                    mppi_controller.obstacles = torch.tensor(obstacles_array, dtype=torch.float32, device=device)
+                    
+                    # Force path replanning
+                    path_planned = False
+                    global_path = []
+                    path_idx = 0
+                    cmd[:] = 0.0  # STOP ROBOT
+                    
+                    # Move chair 9 in MuJoCo scene using mocap
+                    body_id_9 = mujoco.mj_name2id(simulator.model, mujoco.mjtObj.mjOBJ_BODY, "chair_body_9")
+                    mocap_idx_9 = simulator.model.body_mocapid[body_id_9]
+                    if mocap_idx_9 >= 0:
+                        simulator.data.mocap_pos[mocap_idx_9] = [4.6, 0.02, 0.0]
+                    
+                    chair_9_enabled = True
+                    resume_time = elapsed_time + 1.5  # Pause for 1.5 seconds
+                
+                # Check if 8 seconds elapsed and enable chair 11
+
+                if elapsed_time >= 8.0 and not chair_11_enabled:
+                    print(f"\n{'='*60}")
+                    print(f"[{elapsed_time:.2f}s] CHAIR 11 SUDDENLY APPEARED AT ({chair_11_pos[0]}, {chair_11_pos[1]})")
+                    print(f"ROBOT POSITION: ({curr_x:.2f}, {curr_y:.2f})")
+                    print(f"Enabling chair 11 in obstacle map and recalculating path...")
+                    print(f"{'='*60}\n")
+                    
+                    # Add chair 11 to obstacle map
+                    map_config.AVOID_COLLISION_MAP.cylinder_centers.append(chair_11_pos)
+                    map_config.AVOID_COLLISION_MAP.ox, map_config.AVOID_COLLISION_MAP.oy = map_config.AVOID_COLLISION_MAP._build_grid()
+                    
+                    # Update AStar Planner instance
+                    astar_planner = map_config.AVOID_COLLISION_MAP.create_planner()
+                    
+                    # Update MPPI local obstacles array
+                    obstacles_array = map_config.AVOID_COLLISION_MAP.get_obstacles_array()
+                    mppi_controller.obstacles = torch.tensor(obstacles_array, dtype=torch.float32, device=device)
+                    
+                    # Force path replanning
+                    path_planned = False
+                    global_path = []
+                    path_idx = 0
+                    cmd[:] = 0.0  # STOP ROBOT - it must recalculate
+                    
+                    # Move chair 11 in MuJoCo scene using mocap
+                    body_id = mujoco.mj_name2id(simulator.model, mujoco.mjtObj.mjOBJ_BODY, "chair_body_11")
+                    mocap_idx = simulator.model.body_mocapid[body_id]
+                    if mocap_idx >= 0:
+                        simulator.data.mocap_pos[mocap_idx] = [10.6, 0.02, 0.0]
+                    
+                    chair_11_enabled = True
+                
+                # If in pause interval, force stop and skip execution (except A* replanning)
+                if elapsed_time < resume_time:
+                    cmd[:] = 0.0
+                
                 # Get current goal from scenario-specific function
                 goal = target_getter_fn(curr_x, curr_y)
                 
                 if goal is None:
                     # Scenario complete
                     cmd[:] = 0.0
+                    resume_time = 0.0  # Allow stopping cleanly
                 else:
                     goal_x, goal_y = goal
                     
@@ -129,8 +218,12 @@ def run_simulation_pipeline(
                             print(f"A* pathfinding failed!")
                             path_planned = True
                     
-                    # Execute control
-                    if not global_path:
+                    # Execute control ONLY if we are past the pause time
+                    if elapsed_time < resume_time:
+                        cmd[:] = 0.0
+                        if counter % int(2.0 / sim_config.simulation_dt) == 0:
+                            print(f"[{elapsed_time:.1f}s] PAUSED. Resuming in {resume_time - elapsed_time:.1f}s...")
+                    elif not global_path:
                         cmd[:] = 0.0
                     else:
                         dist_to_goal = np.hypot(goal_x - curr_x, goal_y - curr_y)
@@ -197,9 +290,24 @@ def run_simulation_pipeline(
             # Update viewer
             if counter % constants.VIEWER_SYNC_SKIP == 0:
                 viewer.sync()
+                
+                # Update BEV visualization
+                if bev_viz is not None and counter % int(0.1 / sim_config.simulation_dt) == 0:
+                    curr_x, curr_y, yaw = extract_robot_state(simulator.data.qpos, simulator.data.qvel)
+                    goal = target_getter_fn(curr_x, curr_y)
+                    goal_pos = goal if goal is not None else None
+                    bev_viz.update(curr_x, curr_y, yaw, 
+                                  goal_x=goal_pos[0] if goal_pos else None,
+                                  goal_y=goal_pos[1] if goal_pos else None)
             
             # Frame rate control
             target_dt = simulator.model.opt.timestep / constants.SIMULATION_SPEED
             process_time = time.time() - step_start
             if target_dt > process_time:
                 time.sleep(target_dt - process_time)
+    
+    # Cleanup
+    if bev_viz is not None:
+        bev_viz.save_trajectory('/tmp/robot_trajectory_bev.png')
+        bev_viz.show()
+        print("BEV visualization saved. Close figure window to continue.")

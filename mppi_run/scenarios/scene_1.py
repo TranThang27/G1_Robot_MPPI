@@ -75,7 +75,8 @@ def run_avoid_collision_test(config_file="scene_1.yaml"):
         obstacles_array=obstacles_array,
         target_getter_fn=get_current_goal,
         viewer_config=CAMERA_CONFIGS['avoid_collision'],
-        device=device
+        device=device,
+        show_bev=True
     )
 
 

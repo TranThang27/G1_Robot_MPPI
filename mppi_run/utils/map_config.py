@@ -9,7 +9,7 @@ from core import AStarPlanner
 # ============================================
 # SHARED A* PARAMETERS
 # ============================================
-ASTAR_RR = 0.35  # Unified robot radius for all scenarios
+ASTAR_RR = 0.4# Unified robot radius for all scenarios
 
 
 class MapConfig:
@@ -84,20 +84,27 @@ class MapConfig:
 AVOID_COLLISION_MAP = MapConfig(
     name="avoid_collision",
     cylinder_centers=[
-        [2.0, 0.9],     # cyl_1
-        [2.0, -0.9],    # cyl_2
-        [3.5, 0.0],     # cyl_3
-        [5.0, 0.8],     # cyl_4
-        [5.0, -0.8],    # cyl_5
-        [6.5, -0.2],    # cyl_6
-        [8.0, 0.6],     # cyl_7
-        [8.0, -0.6],    # cyl_8
-        [9.5, 0.0],     # cyl_9
-        [2.0, 0.0],     # cyl_10
+        # First section: X=2-3, forces weaving right
+        [2.6, 1.52],    # chair_1 (upper left)
+        [3.6, -1.48],   # chair_2 (lower right)
+        # Second section: X=5-6, forces weaving left
+        [5.6, 1.52],    # chair_3 (upper)
+        [6.6, -0.98],   # chair_4 (lower)
+        # [4.6, 0.02],    # chair_9 (center - squeeze point) DISABLED INITIALLY
+        # Third section: X=8-9, forces weaving right
+        [8.6, 1.52],    # chair_5 (upper)
+        [9.6, -1.48],   # chair_6 (lower)
+        [7.6, 0.52],    # chair_10 (center)
+        [8.5, -0.5],    # chair_12 (new extra)
+        [10.5, -0.5],   # chair_13 (new extra)
+        # Fourth section: X=11-12, final weaving
+        [11.6, 1.02],   # chair_7 (upper)
+        [12.6, -0.98],  # chair_8 (lower)
+        # [10.6, 0.02],   # chair_11 (center) - DISABLED INITIALLY (will enable after 5s)
     ],
-    grid_bounds=(-1.0, 10.0, -2.0, 2.0),
-    cylinder_radius=0.12,
-    astar_resolution=0.1,
+    grid_bounds=(-1.0, 14.6, -2.5, 2.5),
+    cylinder_radius=0.18,  # Obstacle radius
+    astar_resolution=0.2,
     astar_rr=ASTAR_RR
 )
 

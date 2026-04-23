@@ -63,7 +63,7 @@ PATH_SMOOTH_FACTOR = 0.3            # Spline smoothing factor
 # ============================================
 # AVOID_COLLISION SCENARIO
 # ============================================
-AVOID_COLLISION_GOAL = (8.5, 0.0)  # Goal position for avoid collision test (past all cylinders)
+AVOID_COLLISION_GOAL = (12.0, -0.2)  # Goal position beyond all obstacles - must navigate through to reach
 
 # ============================================
 # ROOM_SCENE SCENARIO

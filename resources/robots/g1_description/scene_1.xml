@@ -13,34 +13,69 @@
     <texture type="skybox" builtin="flat" rgb1="0 0 0" rgb2="0 0 0" width="512" height="3072"/>
     <texture type="2d" name="groundplane" builtin="checker" mark="edge" rgb1="0.2 0.3 0.4" rgb2="0.1 0.2 0.3" markrgb="0.8 0.8 0.8" width="300" height="300"/>
     <material name="groundplane" texture="groundplane" texuniform="true" texrepeat="5 5" reflectance="0.2"/>
+    <mesh name="chair" file="../meshes_env/chair.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="human" file="../meshes_env/human_db8c2c60.stl" scale="1.0 1.0 1.0"/>
   </asset>
 
  <worldbody>
   <light pos="1 0 3.5" dir="0 0 -1" directional="true"/>
   <geom name="floor" size="0 0 0.05" type="plane" material="groundplane"/>
 
-  <!-- ===== ROW X = 2.0 ===== -->
-  <geom name="cyl_1" type="cylinder" pos="2.0 0.9 0.3" size="0.1 0.3" rgba="1 0 0 1"/>
-  <geom name="cyl_2" type="cylinder" pos="2.0 -0.9 0.3" size="0.1 0.3" rgba="1 0 0 1"/>
+  <!-- ===== Serpentine Winding Pattern of Chairs ===== -->
+  <!-- Chairs arranged to force S-curve/winding navigation -->
+  <!-- First section: X=2-3, forces weaving right -->
+  <body pos="2.6 1.52 0.0" name="chair_body_1">
+    <geom name="chair_1" type="mesh" mesh="chair" contype="2" conaffinity="1" rgba="0.8 0.6 0.4 1"/>
+  </body>
+  <body pos="3.6 -1.48 0.0" name="chair_body_2">
+    <geom name="chair_2" type="mesh" mesh="chair" contype="2" conaffinity="1" rgba="0.8 0.6 0.4 1"/>
+  </body>
 
-  <!-- ===== ROW X = 3.5 ===== -->
-  <geom name="cyl_3" type="cylinder" pos="3.5 0.0 0.3" size="0.1 0.3" rgba="1 0 0 1"/>
+  <!-- Second section: X=5-6, forces weaving left -->
+  <body pos="5.6 1.52 0.0" name="chair_body_3">
+    <geom name="chair_3" type="mesh" mesh="chair" contype="2" conaffinity="1" rgba="0.8 0.6 0.4 1"/>
+  </body>
+  <body pos="6.6 -0.98 0.0" name="chair_body_4">
+    <geom name="chair_4" type="mesh" mesh="chair" contype="2" conaffinity="1" rgba="0.8 0.6 0.4 1"/>
+  </body>
 
-  <!-- ===== ROW X = 5.0 ===== -->
-  <geom name="cyl_4" type="cylinder" pos="5.0 0.8 0.3" size="0.1 0.3" rgba="1 0 0 1"/>
-  <geom name="cyl_5" type="cylinder" pos="5.0 -0.8 0.3" size="0.1 0.3" rgba="1 0 0 1"/>
+  <!-- Third section: X=8-9, forces weaving right -->
+  <body pos="8.6 1.52 0.0" name="chair_body_5">
+    <geom name="chair_5" type="mesh" mesh="chair" contype="2" conaffinity="1" rgba="0.8 0.6 0.4 1"/>
+  </body>
+  <body pos="9.6 -1.48 0.0" name="chair_body_6">
+    <geom name="chair_6" type="mesh" mesh="chair" contype="2" conaffinity="1" rgba="0.8 0.6 0.4 1"/>
+  </body>
 
-  <!-- ===== ROW X = 6.5 ===== -->
-  <geom name="cyl_6" type="cylinder" pos="6.5 -0.2 0.3" size="0.1 0.3" rgba="1 0 0 1"/>
+  <!-- Fourth section: X=11-12, final weaving -->
+  <body pos="11.6 1.02 0.0" name="chair_body_7">
+    <geom name="chair_7" type="mesh" mesh="chair" contype="2" conaffinity="1" rgba="0.8 0.6 0.4 1"/>
+  </body>
+  <body pos="12.6 -0.98 0.0" name="chair_body_8">
+    <geom name="chair_8" type="mesh" mesh="chair" contype="2" conaffinity="1" rgba="0.8 0.6 0.4 1"/>
+  </body>
 
-  <!-- ===== ROW X = 8.0 ===== -->
-  <geom name="cyl_7" type="cylinder" pos="8.0 0.6 0.3" size="0.1 0.3" rgba="1 0 0 1"/>
-  <geom name="cyl_8" type="cylinder" pos="8.0 -0.6 0.3" size="0.1 0.3" rgba="1 0 0 1"/>
+  <!-- Extra obstacles for more winding -->
+  <body pos="4.6 0.02 -10.0" name="chair_body_9" mocap="true">
+    <geom name="chair_9" type="mesh" mesh="chair" contype="2" conaffinity="1" rgba="0.8 0.6 0.4 1"/>
+  </body>
+  <body pos="7.6 0.52 0.0" name="chair_body_10">
+    <geom name="chair_10" type="mesh" mesh="chair" contype="2" conaffinity="1" rgba="0.8 0.6 0.4 1"/>
+  </body>
+  <body pos="10.6 0.02 -10.0" name="chair_body_11" mocap="true">
+    <geom name="chair_11" type="mesh" mesh="chair" contype="2" conaffinity="1" rgba="0.8 0.6 0.4 1"/>
+  </body>
+  <body pos="8.5 -0.5 0.0" name="chair_body_12">
+    <geom name="chair_12" type="mesh" mesh="chair" contype="2" conaffinity="1" rgba="0.8 0.6 0.4 1"/>
+  </body>
+  <body pos="10.5 -0.5 0.0" name="chair_body_13">
+    <geom name="chair_13" type="mesh" mesh="chair" contype="2" conaffinity="1" rgba="0.8 0.6 0.4 1"/>
+  </body>
 
-  <!-- ===== ROW X = 9.5 ===== -->
-  <geom name="cyl_9" type="cylinder" pos="9.5 0.0 0.3" size="0.1 0.3" rgba="1 0 0 1"/>
+  <body pos="12.3 -0.9 0.0" name="human_body" quat="0.7071068 0.7071068 0 0">
+    <geom name="human" type="mesh" mesh="human" contype="2" conaffinity="1" rgba="0.8 0.6 0.4 1"/>
+  </body>
 
-  <geom name="cyl_10" type="cylinder" pos="2.0 0.0 0.3" size="0.1 0.3" rgba="1 0 0 1"/>
 </worldbody>
 
 </mujoco>
