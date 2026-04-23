@@ -46,12 +46,7 @@ class BEVVisualizer:
         self.ax.grid(True, alpha=0.3)
         self.ax.set_xlabel('X (meters)')
         self.ax.set_ylabel('Y (meters)')
-        
-        # Draw obstacles
-        for cx, cy in self.map_config.cylinder_centers:
-            circle = Circle((cx, cy), self.map_config.cylinder_radius, 
-                          color='red', alpha=0.6, label='Obstacles' if (cx, cy) == self.map_config.cylinder_centers[0] else '')
-            self.ax.add_patch(circle)
+
     
     def update(self, robot_x, robot_y, robot_yaw, goal_x=None, goal_y=None):
         """
@@ -67,12 +62,17 @@ class BEVVisualizer:
         # Add to trajectory
         self.trajectory.append((robot_x, robot_y))
         
-        # Clear previous robot and trajectory artists
-        for artist in self.ax.patches[len(self.map_config.cylinder_centers):]:
-            if hasattr(artist, 'remove'):
-                artist.remove()
-        for line in self.ax.lines:
+        # Clear ALL patches and lines
+        for patch in list(self.ax.patches):
+            patch.remove()
+        for line in list(self.ax.lines):
             line.remove()
+        
+        # Draw obstacles (dynamically reflects newly added ones)
+        for i, (cx, cy) in enumerate(self.map_config.cylinder_centers):
+            circle = Circle((cx, cy), self.map_config.cylinder_radius, 
+                          color='red', alpha=0.6, label='Obstacles' if i == 0 else '')
+            self.ax.add_patch(circle)
         
         # Draw trajectory
         if len(self.trajectory) > 1:

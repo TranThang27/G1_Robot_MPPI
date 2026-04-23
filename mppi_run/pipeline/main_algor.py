@@ -196,7 +196,9 @@ def run_simulation_pipeline(
                 if goal is None:
                     # Scenario complete
                     cmd[:] = 0.0
-                    resume_time = 0.0  # Allow stopping cleanly
+                    print("Scenario finished. Waiting 1.5s then exiting...")
+                    time.sleep(1.5)
+                    sys.exit(0)
                 else:
                     goal_x, goal_y = goal
                     
